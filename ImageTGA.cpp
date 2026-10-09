@@ -183,8 +183,8 @@ void ImageTGA::BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::
 	std::vector<float> RingBuffer( ChannelsInRow * RingSize );     // Each value is a pixel channel
 	const auto GetRowFromRingBuffer = [&]( int Row ) { return RingBuffer.data() + ( Row % RingSize ) * ChannelsInRow; };
 
-	std::vector<uint8_t> OutputRow( ChannelsInRow );
-	std::vector<float> BlurredRow( ChannelsInRow );
+	std::vector<float> BlurredRow( ChannelsInRow );   // Store here our result row but with float type
+	std::vector<uint8_t> OutputRow( ChannelsInRow );  // Our converted to uint8_t result row which we will write in the output file
 
 	// Rows are processed in the file order. The kernel is symmetric, so it doesn't matter if the image is stored bottom-up or top-down
 	int RowsRead = 0;
@@ -215,21 +215,25 @@ void ImageTGA::BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::
 		{
 			// ClampedSrcY is a clamped position shifted by Kernel position to return the last pixel if we go over the edge of the image
 			// We clamp it because our loop goes beyond the edges of the image
-			const int ClampedSrcY = std::min( std::max( Y + KernelIndex, 0 ), ImageHeight - 1 );
+			const int ClampedShiftedY = std::min( std::max( Y + KernelIndex, 0 ), ImageHeight - 1 );
 			const float Weight = Kernel[KernelIndex + Radius];
-			const float* SrcRow = GetRowFromRingBuffer( ClampedSrcY );
+			const float* SrcRow = GetRowFromRingBuffer( ClampedShiftedY );
+			// Go through all the channels in a row and write them into according channel of the resulting row
 			for ( std::size_t I = 0; I < ChannelsInRow; ++I )
 			{
 				BlurredRow[I] += Weight * SrcRow[I];
 			}
 		}
 
-		// Back to 8 bits with rounding. Weights are positive and sum to 1, so values are already in 0..255 apart from float error
+		// Convert back from float to uint8_t with rounding.
 		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
 		{
+			// +0.5f turns truncation of the cast into rounding to nearest ( without it the image gets darker by half a level on average )
+			// min with 255.0f guards against float error rounding up to 256, which doesn't fit into uint8_t
 			OutputRow[I] = static_cast<uint8_t>( std::min( BlurredRow[I] + 0.5f, 255.0f ) );
 		}
 
+		// Write a row to the result file
 		OutputStream.write( reinterpret_cast<const char*>( OutputRow.data() ), static_cast<std::streamsize>( ChannelsInRow ) );
 	}
 }
