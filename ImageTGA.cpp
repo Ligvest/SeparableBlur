@@ -116,6 +116,25 @@ static void BlurRowHorizontally( const uint8_t* SrcRow, int ImageWidth, int Chan
 	}
 }
 
+// Blurs one row along Y: weighted sum of the same channel in 2 * Radius + 1 neighbor rows.
+// NeighborRows[KernelIndex] is the horizontally blurred row at offset ( KernelIndex - Radius ) from the current one
+static void BlurRowVertically( const float* const* NeighborRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow )
+{
+	// We accumulate the result in DstRow, so we need to 0 it first
+	std::fill( DstRow, DstRow + ChannelsInRow, 0.0f );
+
+	for ( std::size_t KernelIndex = 0; KernelIndex < Kernel.size(); ++KernelIndex )
+	{
+		const float Weight = Kernel[KernelIndex];
+		const float* SrcRow = NeighborRows[KernelIndex];
+		// Go through all the channels in a row and add weighted channels to the resulting row
+		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
+		{
+			DstRow[I] += Weight * SrcRow[I];
+		}
+	}
+}
+
 void ImageTGA::FillImageHeaderTGAFromFStream( std::ifstream& FileStream )
 {
 	// Field 1 ( 1 Byte )
@@ -183,8 +202,9 @@ void ImageTGA::BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::
 	std::vector<float> RingBuffer( ChannelsInRow * RingSize );     // Each value is a pixel channel
 	const auto GetRowFromRingBuffer = [&]( int Row ) { return RingBuffer.data() + ( Row % RingSize ) * ChannelsInRow; };
 
-	std::vector<float> BlurredRow( ChannelsInRow );   // Store here our result row but with float type
-	std::vector<uint8_t> OutputRow( ChannelsInRow );  // Our converted to uint8_t result row which we will write in the output file
+	std::vector<float> BlurredRow( ChannelsInRow );           // Store here our result row but with float type
+	std::vector<uint8_t> OutputRow( ChannelsInRow );          // Our converted to uint8_t result row which we will write in the output file
+	std::vector<const float*> NeighborRows( Kernel.size() );  // Pointers to the 2 * Radius + 1 ring buffer rows the vertical blur needs for the current row
 
 	// Rows are processed in the file order. The kernel is symmetric, so it doesn't matter if the image is stored bottom-up or top-down
 	int RowsRead = 0;
@@ -208,22 +228,17 @@ void ImageTGA::BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::
 			++RowsRead;
 		}
 
-		// Blur vertically: weighted sum of the neighbor rows, clamped at the top and bottom edges
-		// Each time we accumulate the result in BlurredRow, so we need to 0 it
-		std::fill( BlurredRow.begin(), BlurredRow.end(), 0.0f );
-		for ( int KernelIndex = -Radius; KernelIndex <= Radius; ++KernelIndex )
+		// Collect the neighbor rows for the vertical blur, clamped at the top and bottom edges
+		for ( int Offset = -Radius; Offset <= Radius; ++Offset )
 		{
-			// ClampedSrcY is a clamped position shifted by Kernel position to return the last pixel if we go over the edge of the image
+			// ClampedShiftedY is the row at Offset from Y, clamped to return the edge row if we go over the edge of the image
 			// We clamp it because our loop goes beyond the edges of the image
-			const int ClampedShiftedY = std::min( std::max( Y + KernelIndex, 0 ), ImageHeight - 1 );
-			const float Weight = Kernel[KernelIndex + Radius];
-			const float* SrcRow = GetRowFromRingBuffer( ClampedShiftedY );
-			// Go through all the channels in a row and write them into according channel of the resulting row
-			for ( std::size_t I = 0; I < ChannelsInRow; ++I )
-			{
-				BlurredRow[I] += Weight * SrcRow[I];
-			}
+			const int ClampedShiftedY = std::min( std::max( Y + Offset, 0 ), ImageHeight - 1 );
+			NeighborRows[Offset + Radius] = GetRowFromRingBuffer( ClampedShiftedY );
 		}
+
+		// Blur vertically: weighted sum of the neighbor rows
+		BlurRowVertically( NeighborRows.data(), ChannelsInRow, Kernel, BlurredRow.data() );
 
 		// Convert back from float to uint8_t with rounding.
 		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
