@@ -1,0 +1,28 @@
+# Set to true to disable clang-format
+DisableFormat: false
+
+BasedOnStyle: Google
+IndentWidth: 4
+AccessModifierOffset: -4
+TabWidth: 4
+UseTab: ForIndentation
+ColumnLimit: 200
+SpacesInParentheses: true
+AlignAfterOpenBracket: Align
+
+# To align assignments e.g.:
+# int a    = 0;
+# int bbbb = 1;
+#AlignConsecutiveAssignments: Consecutive
+
+AlignConsecutiveBitFields: Consecutive
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+AlignOperands: AlignAfterOperator
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortFunctionsOnASingleLine: InlineOnly
+SortIncludes: false
+BreakBeforeBraces: Allman # Curve braces style
+
+BitFieldColonSpacing: Both

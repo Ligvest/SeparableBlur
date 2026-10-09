@@ -1,0 +1,17 @@
+# Build output
+x64/
+Blur/x64/
+*.user
+
+# IDE
+.vs/
+.idea/
+# *.sln
+# *.vcxproj
+# *.vcxproj.filters
+
+# Test Images
+*.tga
+
+# Docs
+*.pdf
