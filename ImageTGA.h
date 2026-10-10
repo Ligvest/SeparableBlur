@@ -86,7 +86,10 @@ private:
 	// Write to file methods
 	void WriteImageHeaderTGAToFStream( std::ofstream& FileStream ) const;
 	void WriteImageIdTGAToFStream( std::ofstream& FileStream ) const;
-	void BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::ofstream& OutputStream, float Sigma ) const;
+	// Blurs pixel rows [FirstRow, EndRow) and writes them into their place in the output file.
+	// Opens its own file streams, so several strips can be processed in parallel threads
+	void BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, std::uint64_t PixelDataOffset, int FirstRow, int EndRow, const std::vector<float>& Kernel,
+	                              int Radius ) const;
 
 public:
 	ImageHeaderTGA Header;
