@@ -1,7 +1,7 @@
 ﻿#pragma once
+
 #include <cstdint>
 #include <iosfwd>
-#include <string>
 #include <vector>
 
 namespace Image
@@ -50,37 +50,20 @@ struct ImageHeaderTGA
 	uint8_t ImageDescriptor;  // To extract: attributeBits = imageDescriptor & 0x0F;
 };
 
-class ImageTGABlurer
-{
-public:
-	// Utility function to print an image header
-	void PrintHeader() const;
+// Reads the 18-byte TGA Header field by field ( the ImageHeaderTGA struct itself is bigger because of padding )
+ImageHeaderTGA ReadHeaderTGA( std::istream& Stream );
+// Writes TGA Header field by field to stream ( 18-bytes in total )
+void WriteHeaderTGA( std::ostream& Stream, const ImageHeaderTGA& Header );
 
-	// Blurs the image with a separable Gaussian and saves it next to the input file with the "out_" prefix.
-	// Sigma is in pixels, 0 means no blur
-	void BlurAndSaveToFile( const std::string& InputFileName, const std::string& OutputFileName, float Sigma );
+// Reads the ImageId field ( stream pos should be just after the Header )
+std::vector<uint8_t> ReadImageIdTGA( std::istream& Stream, const ImageHeaderTGA& Header );
+// Writes ImageId field to stream ( stream pos should be just after the Header )
+void WriteImageIdTGA( std::ostream& Stream, const std::vector<uint8_t>& ImageId );
 
-private:
-	// Read from file methods
-	void FillHeaderFromFStream( std::ifstream& FileStream );
-	void FillImageIdFromFStream( std::ifstream& FileStream );
+// Checks that the image is of a kind we support: uncompressed true-color, 24 or 32 bits, not empty
+void CheckHeaderTGA( const ImageHeaderTGA& Header );
 
-	// Write to file methods
-	void WriteHeaderToFStream( std::ofstream& FileStream ) const;
-	void WriteImageIdToFStream( std::ofstream& FileStream ) const;
-	// Blurs pixel rows [FirstRow, EndRow) and writes them into their place in the output file.
-	// Opens its own file streams, so several strips can be processed in parallel threads
-	void BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, std::uint64_t PixelDataOffset, int FirstRow, int EndRow, const std::vector<float>& Kernel,
-	                              int Radius ) const;
-
-	// Checks the Header of the TGA image for the compatibility with the class features
-	void CheckHeader() const;
-
-public:
-	ImageHeaderTGA Header;
-
-	// ImageId Field ( Located after header in the TGA 2.0 )
-	std::vector<uint8_t> ImageId;
-};
+// Utility function to print an image header
+void PrintHeaderTGA( const ImageHeaderTGA& Header );
 
 }  // namespace Image

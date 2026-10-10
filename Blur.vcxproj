@@ -158,11 +158,16 @@
         </Link>
     </ItemDefinitionGroup>
     <ItemGroup>
-        <ClCompile Include="ImageTGABlurer.cpp"/>
+        <ClCompile Include="GaussianBlur.cpp"/>
         <ClCompile Include="main.cpp"/>
+        <ClCompile Include="TGABlur.cpp"/>
+        <ClCompile Include="TGAFormat.cpp"/>
     </ItemGroup>
     <ItemGroup>
-        <ClInclude Include="ImageTGABlurer.h"/>
+        <ClInclude Include="Error.h"/>
+        <ClInclude Include="GaussianBlur.h"/>
+        <ClInclude Include="TGABlur.h"/>
+        <ClInclude Include="TGAFormat.h"/>
     </ItemGroup>
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
     <ImportGroup Label="ExtensionTargets">

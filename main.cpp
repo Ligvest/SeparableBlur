@@ -1,15 +1,17 @@
-#include "ImageTGABlurer.h"
-
 #include <chrono>
+#include <fstream>
 #include <iostream>
 
-int main( int argc, char *argv[] )
+#include "TGABlur.h"
+#include "TGAFormat.h"
+
+int main( int argc, char* argv[] )
 {
-	Image::ImageTGABlurer tga;
+	std::ifstream InputStream( "Sharkmob.tga", std::ios::binary );
+	Image::PrintHeaderTGA( Image::ReadHeaderTGA( InputStream ) );
 
 	const auto StartTime = std::chrono::steady_clock::now();
-	tga.BlurAndSaveToFile( "Sharkmob.tga", "SharkmobBlur.tga", 30.0f );
-	tga.PrintHeader();
+	Image::BlurTGAFile( "Sharkmob.tga", "SharkmobBlur.tga", 30.0f );
 	const auto EndTime = std::chrono::steady_clock::now();
 	std::cout << "Blur took: " << std::chrono::duration<double, std::milli>( EndTime - StartTime ).count() << " ms\n";
 
