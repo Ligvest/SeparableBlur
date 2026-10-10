@@ -158,11 +158,11 @@
         </Link>
     </ItemDefinitionGroup>
     <ItemGroup>
-        <ClCompile Include="ImageTGA.cpp"/>
+        <ClCompile Include="ImageTGABlurer.cpp"/>
         <ClCompile Include="main.cpp"/>
     </ItemGroup>
     <ItemGroup>
-        <ClInclude Include="ImageTGA.h"/>
+        <ClInclude Include="ImageTGABlurer.h"/>
     </ItemGroup>
     <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
     <ImportGroup Label="ExtensionTargets">

@@ -1,4 +1,4 @@
-﻿#include "ImageTGA.h"
+﻿#include "ImageTGABlurer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,33 +15,6 @@ namespace Image
 {
 	std::cerr << TerminationMessage << '\n';
 	std::terminate();
-}
-
-static void CheckHeader( const ImageHeaderTGA& Header )
-{
-	// Color map is not supported
-	if ( Header.ColorMapType != 0 )
-	{
-		TerminateWithMessage( "File shouldn't have Color map" );
-	}
-
-	// Only uncompressed true-color images are supported
-	if ( Header.ImageType != 2 )
-	{
-		TerminateWithMessage( "Image type should be 2 ( True Color )" );
-	}
-
-	// Only 24 and 32 bits per pixel are supported
-	if ( Header.PixelDepth != 24 && Header.PixelDepth != 32 )
-	{
-		TerminateWithMessage( "Pixel depth can only be 24 or 32 bits" );
-	}
-
-	// Empty image
-	if ( Header.Width == 0 || Header.Height == 0 )
-	{
-		TerminateWithMessage( "Width or height is 0" );
-	}
 }
 
 // 1D Gaussian kernel. Weights are normalized to sum to 1, so the image doesn't get darker or brighter
@@ -135,7 +108,7 @@ static void BlurRowVertically( const float* const* SrcRows, std::size_t Channels
 	}
 }
 
-void ImageTGA::FillImageHeaderTGAFromFStream( std::ifstream& FileStream )
+void ImageTGABlurer::FillHeaderFromFStream( std::ifstream& FileStream )
 {
 	// Field 1 ( 1 Byte )
 	FileStream.read( reinterpret_cast<char*>( &Header.IdLength ), sizeof( Header.IdLength ) );
@@ -156,7 +129,7 @@ void ImageTGA::FillImageHeaderTGAFromFStream( std::ifstream& FileStream )
 	FileStream.read( reinterpret_cast<char*>( &Header.ImageDescriptor ), sizeof( Header.ImageDescriptor ) );
 }
 
-void ImageTGA::WriteImageHeaderTGAToFStream( std::ofstream& FileStream ) const
+void ImageTGABlurer::WriteHeaderToFStream( std::ofstream& FileStream ) const
 {
 	// Same fields in the same order as in FillImageHeaderTGAFromFStream
 	// Field 1 ( 1 Byte )
@@ -178,13 +151,13 @@ void ImageTGA::WriteImageHeaderTGAToFStream( std::ofstream& FileStream ) const
 	FileStream.write( reinterpret_cast<const char*>( &Header.ImageDescriptor ), sizeof( Header.ImageDescriptor ) );
 }
 
-void ImageTGA::WriteImageIdTGAToFStream( std::ofstream& FileStream ) const
+void ImageTGABlurer::WriteImageIdToFStream( std::ofstream& FileStream ) const
 {
 	FileStream.write( reinterpret_cast<const char*>( ImageId.data() ), static_cast<std::streamsize>( ImageId.size() ) );
 }
 
-void ImageTGA::BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, std::uint64_t PixelDataOffset, int FirstRow, int EndRow, const std::vector<float>& Kernel,
-                                        int Radius ) const
+void ImageTGABlurer::BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, std::uint64_t PixelDataOffset, int FirstRow, int EndRow,
+                                              const std::vector<float>& Kernel, int Radius ) const
 {
 	const int ImageWidth = Header.Width;                                                    // Width in Pixels
 	const int ImageHeight = Header.Height;                                                  // Height in Pixels
@@ -283,7 +256,34 @@ void ImageTGA::BlurStripAndWriteToFile( const std::string& InputFileName, const 
 	}
 }
 
-void ImageTGA::FillImageIdTGAFromFStream( std::ifstream& FileStream )
+void ImageTGABlurer::CheckHeader() const
+{
+	// Color map is not supported
+	if ( Header.ColorMapType != 0 )
+	{
+		TerminateWithMessage( "File shouldn't have Color map" );
+	}
+
+	// Only uncompressed true-color images are supported
+	if ( Header.ImageType != 2 )
+	{
+		TerminateWithMessage( "Image type should be 2 ( True Color )" );
+	}
+
+	// Only 24 and 32 bits per pixel are supported
+	if ( Header.PixelDepth != 24 && Header.PixelDepth != 32 )
+	{
+		TerminateWithMessage( "Pixel depth can only be 24 or 32 bits" );
+	}
+
+	// Empty image
+	if ( Header.Width == 0 || Header.Height == 0 )
+	{
+		TerminateWithMessage( "Width or height is 0" );
+	}
+}
+
+void ImageTGABlurer::FillImageIdFromFStream( std::ifstream& FileStream )
 {
 	// Field 6 ( Header.IdLength Bytes ) ImageId field
 	ImageId.resize( Header.IdLength );
@@ -294,7 +294,7 @@ void ImageTGA::FillImageIdTGAFromFStream( std::ifstream& FileStream )
 	}
 }
 
-void ImageTGA::BlurAndSaveToFile( const std::string& InputFileName, const std::string& OutputFileName, float Sigma )
+void ImageTGABlurer::BlurAndSaveToFile( const std::string& InputFileName, const std::string& OutputFileName, float Sigma )
 {
 	// Open the input file
 	std::ifstream InputStream( InputFileName, std::ios::binary );
@@ -304,9 +304,9 @@ void ImageTGA::BlurAndSaveToFile( const std::string& InputFileName, const std::s
 	}
 
 	// Read Header and ImageId field
-	FillImageHeaderTGAFromFStream( InputStream );
-	CheckHeader( Header );
-	FillImageIdTGAFromFStream( InputStream );
+	FillHeaderFromFStream( InputStream );
+	CheckHeader();
+	FillImageIdFromFStream( InputStream );
 
 	// Next field contains pixels. Each thread will seek to its own strip of them from here
 	const std::uint64_t PixelDataOffset = static_cast<std::uint64_t>( InputStream.tellg() );
@@ -328,8 +328,8 @@ void ImageTGA::BlurAndSaveToFile( const std::string& InputFileName, const std::s
 	}
 
 	//  Write Header and ImageId field
-	WriteImageHeaderTGAToFStream( OutputStream );
-	WriteImageIdTGAToFStream( OutputStream );
+	WriteHeaderToFStream( OutputStream );
+	WriteImageIdToFStream( OutputStream );
 	// Next field will contain pixels. The threads write them later, so skip it for now
 
 	// Copy everything after the pixels ( developer area, extension area, footer ) as is.
@@ -380,31 +380,31 @@ void ImageTGA::BlurAndSaveToFile( const std::string& InputFileName, const std::s
 	}
 }
 
-static const char* ImageTypeToStringTGA( uint8_t ImageType )
+void ImageTGABlurer::PrintHeader() const
 {
-	switch ( ImageType )
+	auto ImageTypeToString = []( uint8_t ImageType ) -> const char*
 	{
-		case 0:
-			return "No image data";
-		case 1:
-			return "Color-mapped";
-		case 2:
-			return "True-color";
-		case 3:
-			return "Grayscale";
-		case 9:
-			return "Color-mapped, RLE";
-		case 10:
-			return "True-color, RLE";
-		case 11:
-			return "Grayscale, RLE";
-		default:
-			return "Unknown";
-	}
-}
+		switch ( ImageType )
+		{
+			case 0:
+				return "No image data";
+			case 1:
+				return "Color-mapped";
+			case 2:
+				return "True-color";
+			case 3:
+				return "Grayscale";
+			case 9:
+				return "Color-mapped, RLE";
+			case 10:
+				return "True-color, RLE";
+			case 11:
+				return "Grayscale, RLE";
+			default:
+				return "Unknown";
+		}
+	};
 
-void ImageTGA::PrintHeader() const
-{
 	// uint8_t is a character type for std::ostream, so 8-bit fields go through unsigned to be printed as numbers, not as chars
 	const auto AsNumber = []( uint8_t Value ) { return static_cast<unsigned int>( Value ); };
 
@@ -418,7 +418,7 @@ void ImageTGA::PrintHeader() const
 	std::cout << "TGA header:\n"
 	          << "  IdLength:          " << AsNumber( Header.IdLength ) << '\n'
 	          << "  ColorMapType:      " << AsNumber( Header.ColorMapType ) << '\n'
-	          << "  ImageType:         " << AsNumber( Header.ImageType ) << " (" << ImageTypeToStringTGA( Header.ImageType ) << ")\n"
+	          << "  ImageType:         " << AsNumber( Header.ImageType ) << " (" << ImageTypeToString( Header.ImageType ) << ")\n"
 	          << "  FirstEntryIndex:   " << Header.FirstEntryIndex << '\n'
 	          << "  ColorMapLength:    " << Header.ColorMapLength << '\n'
 	          << "  ColorMapEntrySize: " << AsNumber( Header.ColorMapEntrySize ) << '\n'

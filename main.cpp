@@ -1,11 +1,11 @@
-#include "ImageTGA.h"
+#include "ImageTGABlurer.h"
 
 #include <chrono>
 #include <iostream>
 
 int main( int argc, char *argv[] )
 {
-	Image::ImageTGA tga;
+	Image::ImageTGABlurer tga;
 
 	const auto StartTime = std::chrono::steady_clock::now();
 	tga.BlurAndSaveToFile( "Sharkmob.tga", "SharkmobBlur.tga", 30.0f );

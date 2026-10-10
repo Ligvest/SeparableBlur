@@ -7,21 +7,6 @@
 namespace Image
 {
 
-struct Pixel24
-{
-	uint8_t B;
-	uint8_t G;
-	uint8_t R;
-};
-
-struct Pixel32
-{
-	uint8_t B;
-	uint8_t G;
-	uint8_t R;
-	uint8_t Attribute;
-};
-
 // Size is 20 because of padding. Intentionally kept the order of fields the same as in TGA 2.0 documentation
 struct ImageHeaderTGA
 {
@@ -65,13 +50,10 @@ struct ImageHeaderTGA
 	uint8_t ImageDescriptor;  // To extract: attributeBits = imageDescriptor & 0x0F;
 };
 
-std::vector<Pixel24> ReadImagePixels24FromFStream( std::ifstream& FileStream );
-std::vector<Pixel32> ReadImagePixels32FromFStream( std::ifstream& FileStream );
-
-class ImageTGA
+class ImageTGABlurer
 {
 public:
-	// void ReadFromFile( const std::string& FileName );
+	// Utility function to print an image header
 	void PrintHeader() const;
 
 	// Blurs the image with a separable Gaussian and saves it next to the input file with the "out_" prefix.
@@ -80,16 +62,19 @@ public:
 
 private:
 	// Read from file methods
-	void FillImageHeaderTGAFromFStream( std::ifstream& FileStream );
-	void FillImageIdTGAFromFStream( std::ifstream& FileStream );
+	void FillHeaderFromFStream( std::ifstream& FileStream );
+	void FillImageIdFromFStream( std::ifstream& FileStream );
 
 	// Write to file methods
-	void WriteImageHeaderTGAToFStream( std::ofstream& FileStream ) const;
-	void WriteImageIdTGAToFStream( std::ofstream& FileStream ) const;
+	void WriteHeaderToFStream( std::ofstream& FileStream ) const;
+	void WriteImageIdToFStream( std::ofstream& FileStream ) const;
 	// Blurs pixel rows [FirstRow, EndRow) and writes them into their place in the output file.
 	// Opens its own file streams, so several strips can be processed in parallel threads
 	void BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, std::uint64_t PixelDataOffset, int FirstRow, int EndRow, const std::vector<float>& Kernel,
 	                              int Radius ) const;
+
+	// Checks the Header of the TGA image for the compatibility with the class features
+	void CheckHeader() const;
 
 public:
 	ImageHeaderTGA Header;
