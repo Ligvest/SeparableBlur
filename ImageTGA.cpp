@@ -78,9 +78,8 @@ static std::vector<float> MakeGaussianKernel( int Radius, float Sigma )
 }
 
 // Blurs one row along X. Neighbors outside the image are taken from the edge pixel ( clamp )
-static void BlurRowHorizontally( const uint8_t* SrcRow, int ImageWidth, int ChannelsInPixel, const std::vector<float>& Kernel, std::vector<float>& PaddedRow, float* DstRow, int Radius )
+static void BlurRowHorizontally( const float* SrcRow, int ImageWidth, int ChannelsInPixel, const std::vector<float>& Kernel, std::vector<float>& PaddedRow, float* DstRow, int Radius )
 {
-	// Convert the row from uint8_t to float
 	// Pad the row with Radius copies of the edge pixel on each side ( "clamp to edge" ), so the blur loop below needs no bounds checks
 	PaddedRow.resize( static_cast<std::size_t>( ImageWidth + 2 * Radius ) * ChannelsInPixel );
 	// From the (left edge - Radius) pos to the (right edge + Radius ) pos
@@ -118,8 +117,8 @@ static void BlurRowHorizontally( const uint8_t* SrcRow, int ImageWidth, int Chan
 }
 
 // Blurs one row along Y: weighted sum of the same channel in 2 * Radius + 1 neighbor rows.
-// NeighborRows[KernelIndex] is the horizontally blurred row at offset ( KernelIndex - Radius ) from the current one
-static void BlurRowVertically( const float* const* NeighborRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow )
+// SrcRows[KernelIndex] is the input row ( converted to float ) at offset ( KernelIndex - Radius ) from the current one
+static void BlurRowVertically( const float* const* SrcRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow )
 {
 	// We accumulate the result in DstRow, so we need to 0 it first
 	std::fill( DstRow, DstRow + ChannelsInRow, 0.0f );
@@ -127,7 +126,7 @@ static void BlurRowVertically( const float* const* NeighborRows, std::size_t Cha
 	for ( std::size_t KernelIndex = 0; KernelIndex < Kernel.size(); ++KernelIndex )
 	{
 		const float Weight = Kernel[KernelIndex];
-		const float* SrcRow = NeighborRows[KernelIndex];
+		const float* SrcRow = SrcRows[KernelIndex];
 		// Go through all the channels in a row and add weighted channels to the resulting row
 		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
 		{
@@ -212,18 +211,21 @@ void ImageTGA::BlurStripAndWriteToFile( const std::string& InputFileName, const 
 	}
 	OutputStream.seekp( static_cast<std::streamoff>( PixelDataOffset + FirstRow * ChannelsInRow ) );
 
-	// Ring buffer of horizontally blurred rows.
+	// Ring buffer of input rows converted to float.
+	// We blur vertically first and horizontally after that, so the extra Radius rows above and below the strip are only read, not blurred.
+	// The order doesn't change the result, because the 2D Gaussian kernel is separable
 	// For vertical blur we need current row and rows from Y - Radius to Y + Radius
-	// So RingSize is (2 * Radius + 1) for kernel rows + 1 central one
+	// So RingSize is (2 * Radius + 1) contains 2*Radius for kernel rows + 1 central one
 	// This is the amount we need at a time.
 	const int RingSize = std::min( 2 * Radius + 1, ImageHeight );  // Ring size in pixel rows
 	std::vector<float> RingBuffer( ChannelsInRow * RingSize );     // Each value is a pixel channel
 	// Row N is stored in slot N % RingSize
 	const auto GetRowFromRingBuffer = [&]( int Row ) { return RingBuffer.data() + ( Row % RingSize ) * ChannelsInRow; };
 
-	std::vector<float> BlurredRow( ChannelsInRow );           // Store here our result row but with float type
-	std::vector<uint8_t> OutputRow( ChannelsInRow );          // Our converted to uint8_t result row which we will write in the output file
-	std::vector<const float*> NeighborRows( Kernel.size() );  // Pointers to the 2 * Radius + 1 ring buffer rows the vertical blur needs for the current row
+	std::vector<float> VerticalRow( ChannelsInRow );             // Result of the vertical blur, the input for the horizontal one
+	std::vector<float> BlurredRow( ChannelsInRow );              // Store here our result row but with float type
+	std::vector<uint8_t> OutputRow( ChannelsInRow );             // Our converted to uint8_t result row which we will write in the output file
+	std::vector<const float*> SrcNeighborRows( Kernel.size() );  // Pointers to the 2 * Radius + 1 ring buffer rows the vertical blur needs for the current row
 
 	// Rows are processed in the file order. The kernel is symmetric, so it doesn't matter if the image is stored bottom-up or top-down
 	int NextRowToRead = FirstNeededRow;
@@ -242,8 +244,8 @@ void ImageTGA::BlurStripAndWriteToFile( const std::string& InputFileName, const 
 				TerminateWithMessage( "File is too short to contain all pixels" );
 			}
 
-			// Blur InputRow and write result in RingBuffer
-			BlurRowHorizontally( InputRow.data(), ImageWidth, ChannelsInPixel, Kernel, PaddedRow, GetRowFromRingBuffer( NextRowToRead ), Radius );
+			// Convert InputRow from uint8_t to float and store it in RingBuffer
+			std::copy( InputRow.begin(), InputRow.end(), GetRowFromRingBuffer( NextRowToRead ) );
 			++NextRowToRead;
 		}
 
@@ -253,11 +255,14 @@ void ImageTGA::BlurStripAndWriteToFile( const std::string& InputFileName, const 
 			// ClampedShiftedY is the row at Offset from Y, clamped to return the edge row if we go over the edge of the image
 			// We clamp it because our loop goes beyond the edges of the image
 			const int ClampedShiftedY = std::min( std::max( Y + Offset, 0 ), ImageHeight - 1 );
-			NeighborRows[Offset + Radius] = GetRowFromRingBuffer( ClampedShiftedY );
+			SrcNeighborRows[Offset + Radius] = GetRowFromRingBuffer( ClampedShiftedY );
 		}
 
 		// Blur vertically: weighted sum of the neighbor rows
-		BlurRowVertically( NeighborRows.data(), ChannelsInRow, Kernel, BlurredRow.data() );
+		BlurRowVertically( SrcNeighborRows.data(), ChannelsInRow, Kernel, VerticalRow.data() );
+
+		// Blur the result horizontally. Each row of the strip is blurred horizontally exactly once
+		BlurRowHorizontally( VerticalRow.data(), ImageWidth, ChannelsInPixel, Kernel, PaddedRow, BlurredRow.data(), Radius );
 
 		// Convert back from float to uint8_t with rounding.
 		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
