@@ -98,20 +98,19 @@ static void BlurRowHorizontally( const uint8_t* SrcRow, int ImageWidth, int Chan
 	}
 
 	// Bluring
-	for ( int X = 0; X < ImageWidth; ++X )
+	// The blurred row is a weighted sum of copies of PaddedRow, each shifted by KernelIndex pixels.
+	const std::size_t ChannelsInRow = static_cast<std::size_t>( ImageWidth ) * ChannelsInPixel;
+	// We accumulate the result in DstRow, so we need to 0 it first
+	std::fill( DstRow, DstRow + ChannelsInRow, 0.0f );
+	for ( int KernelIndex = 0; KernelIndex <= 2 * Radius; ++KernelIndex )
 	{
-		for ( int CurChannel = 0; CurChannel < ChannelsInPixel; ++CurChannel )
+		const float Weight = Kernel[KernelIndex];
+		// Kernel and PaddedRow have the same shift, so element I of ShiftedRow is the neighbor at offset ( KernelIndex - Radius ) of element I of DstRow
+		const float* ShiftedRow = PaddedRow.data() + static_cast<std::size_t>( KernelIndex ) * ChannelsInPixel;
+		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
 		{
-			float Sum = 0.0f;
-			// Kernel and PaddedRow have the same shift.
-			// That's why we don't need to correct our position in PaddedRow with ( X + Radius )
-			for ( int KernelIndex = 0; KernelIndex <= 2 * Radius; ++KernelIndex )
-			{
-				// Using PaddedRow to calculate blurred pixel channel
-				Sum += Kernel[KernelIndex] * PaddedRow[( X + KernelIndex ) * ChannelsInPixel + CurChannel];
-			}
-			// Write the blurred pixel channel in the result Row container
-			DstRow[X * ChannelsInPixel + CurChannel] = Sum;
+			// The loop goes over contiguous memory and its iterations don't depend on each other, so the compiler vectorizes it ( SIMD )
+			DstRow[I] += Weight * ShiftedRow[I];
 		}
 	}
 }
@@ -197,9 +196,9 @@ void ImageTGA::BlurAndWritePixelsTGAToFStream( std::ifstream& InputStream, std::
 	// For vertical blur we need current row and rows from Y - Radius to Y + Radius
 	// So RingSize is (2 * Radius + 1) for kernel rows + 1 central one
 	// This is the amount we need at a time.
-	// Row N is stored in slot N % RingSize
 	const int RingSize = std::min( 2 * Radius + 1, ImageHeight );  // Ring size in pixel rows
 	std::vector<float> RingBuffer( ChannelsInRow * RingSize );     // Each value is a pixel channel
+	// Row N is stored in slot N % RingSize
 	const auto GetRowFromRingBuffer = [&]( int Row ) { return RingBuffer.data() + ( Row % RingSize ) * ChannelsInRow; };
 
 	std::vector<float> BlurredRow( ChannelsInRow );           // Store here our result row but with float type
