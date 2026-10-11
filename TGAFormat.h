@@ -52,13 +52,13 @@ struct ImageHeaderTGA
 
 // Reads the 18-byte TGA Header field by field ( the ImageHeaderTGA struct itself is bigger because of padding )
 ImageHeaderTGA ReadHeaderTGA( std::istream& Stream );
-// Writes TGA Header field by field to stream ( 18-bytes in total )
-void WriteHeaderTGA( std::ostream& Stream, const ImageHeaderTGA& Header );
-
 // Reads the ImageId field ( stream pos should be just after the Header )
 std::vector<uint8_t> ReadImageIdTGA( std::istream& Stream, const ImageHeaderTGA& Header );
+
 // Writes ImageId field to stream ( stream pos should be just after the Header )
 void WriteImageIdTGA( std::ostream& Stream, const std::vector<uint8_t>& ImageId );
+// Writes TGA Header field by field to stream ( 18-bytes in total )
+void WriteHeaderTGA( std::ostream& Stream, const ImageHeaderTGA& Header );
 
 // Checks that the image is of a kind we support: uncompressed true-color, 24 or 32 bits, not empty
 void CheckHeaderTGA( const ImageHeaderTGA& Header );

@@ -14,25 +14,15 @@ namespace Image
 {
 
 // Blurs pixel rows [FirstRow, EndRow) and writes them into their place in the output file.
-// Opens its own file streams, so several strips can be processed in parallel threads
-static void BlurStripAndWriteToFile( const std::string& InputFileName, const std::string& OutputFileName, const ImageHeaderTGA& Header, std::uint64_t PixelDataOffset, int FirstRow, int EndRow,
+// Pixels is the whole pixel data field, shared read-only between the threads.
+// Opens its own output stream, so several strips can be processed in parallel threads
+static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const std::string& OutputFileName, const ImageHeaderTGA& Header, std::uint64_t PixelDataOffset, int FirstRow, int EndRow,
                                      const std::vector<float>& Kernel, int Radius )
 {
 	const int ImageWidth = Header.Width;                                                    // Width in Pixels
 	const int ImageHeight = Header.Height;                                                  // Height in Pixels
 	const int ChannelsInPixel = Header.PixelDepth / 8;                                      // 3 ( BGR ) or 4 ( BGRA ). All channels are blurred the same way
 	const size_t ChannelsInRow = static_cast<std::size_t>( ImageWidth ) * ChannelsInPixel;  // Amount of channels in an image row
-
-	// Each strip opens its own streams, so threads don't share any stream state
-	std::ifstream InputStream( InputFileName, std::ios::binary );
-	if ( !InputStream.is_open() )
-	{
-		TerminateWithMessage( "Couldn't open the input file" );
-	}
-
-	// The vertical blur of FirstRow needs Radius rows above it
-	const int FirstNeededRow = std::max( FirstRow - Radius, 0 );
-	InputStream.seekg( static_cast<std::streamoff>( PixelDataOffset + FirstNeededRow * ChannelsInRow ) );
 
 	// in | out opens the existing file without truncating it, so the strips written by other threads stay intact
 	std::fstream OutputStream( OutputFileName, std::ios::in | std::ios::out | std::ios::binary );
@@ -42,55 +32,30 @@ static void BlurStripAndWriteToFile( const std::string& InputFileName, const std
 	}
 	OutputStream.seekp( static_cast<std::streamoff>( PixelDataOffset + FirstRow * ChannelsInRow ) );
 
-	// Ring buffer of input rows converted to float.
-	// For vertical blur we need current row and rows from Y - Radius to Y + Radius
-	// So RingSize is (2 * Radius + 1) contains 2*Radius for kernel rows + 1 central one
-	const int RingSize = std::min( 2 * Radius + 1, ImageHeight );  // Ring size in pixel rows
-	std::vector<float> RingBuffer( ChannelsInRow * RingSize );     // Each value is a pixel channel
-	// Row N is stored in slot N % RingSize
-	const auto GetRowFromRingBuffer = [&]( int Row ) { return RingBuffer.data() + ( Row % RingSize ) * ChannelsInRow; };
-
-	std::vector<float> VerticalRow( ChannelsInRow );             // Result of the vertical blur, the input for the horizontal one
-	std::vector<const float*> SrcNeighborRows( Kernel.size() );  // Pointers to the 2 * Radius + 1 ring buffer rows the vertical blur needs for the current row
+	std::vector<float> VerticalRow( ChannelsInRow );               // Result of the vertical blur, the input for the horizontal one
+	std::vector<const uint8_t*> SrcNeighborRows( Kernel.size() );  // Pointers to the 2 * Radius + 1 source rows the vertical blur needs for the current row
 
 	std::vector<float> BlurredRow( ChannelsInRow );   // Store here our result row but with float type
 	std::vector<uint8_t> OutputRow( ChannelsInRow );  // Our converted to uint8_t result row which we will write in the output file
 
 	// Rows are processed in the file order. The kernel is symmetric, so it doesn't matter if the image is stored bottom-up or top-down
-	int NextRowToRead = FirstNeededRow;
-	std::vector<uint8_t> InputRow( ChannelsInRow );  // Container to read Row of pixels
-	std::vector<float> PaddedRow;                    // Moved out of the BlurRowHorizontally to let each thread to have its own version and avoid data conflicts
+	std::vector<float> PaddedRow;  // Moved out of the BlurRowHorizontally to let each thread to have its own version and avoid data conflicts
 	for ( int Y = FirstRow; Y < EndRow; ++Y )
 	{
-		// We should read at least Radius + 1 rows to use them in VerticalBlur
-		const int LastNeededRow = std::min( Y + Radius, ImageHeight - 1 );
-		while ( NextRowToRead <= LastNeededRow )
-		{
-			// Read next row of pixels to InputRow
-			InputStream.read( reinterpret_cast<char*>( InputRow.data() ), static_cast<std::streamsize>( ChannelsInRow ) );
-			if ( !InputStream )
-			{
-				TerminateWithMessage( "File is too short to contain all pixels" );
-			}
-
-			// Convert InputRow from uint8_t to float and store it in RingBuffer
-			std::copy( InputRow.begin(), InputRow.end(), GetRowFromRingBuffer( NextRowToRead ) );
-			++NextRowToRead;
-		}
-
-		// Collect the neighbor rows for the vertical blur, clamped at the top and bottom edges
+		// Collect the neighbor rows for the vertical blur, clamped at the top and bottom edges.
+		// Rows of other strips are read too, which is safe because nobody writes into Pixels
 		for ( int Offset = -Radius; Offset <= Radius; ++Offset )
 		{
 			// ClampedShiftedY is the row at Offset from Y, clamped to return the edge row if we go over the edge of the image
 			// We clamp it because our loop goes beyond the edges of the image
 			const int ClampedShiftedY = std::min( std::max( Y + Offset, 0 ), ImageHeight - 1 );
-			SrcNeighborRows[Offset + Radius] = GetRowFromRingBuffer( ClampedShiftedY );
+			SrcNeighborRows[Offset + Radius] = Pixels.data() + ClampedShiftedY * ChannelsInRow;
 		}
 
 		// Blur vertically: weighted sum of the neighbor rows
 		BlurRowVertically( SrcNeighborRows.data(), ChannelsInRow, Kernel, VerticalRow.data() );
 
-		// Blur the result horizontally. Each row of the strip is blurred horizontally exactly once
+		// Blur the result of vertical blur horizontally. Each row of the strip is blurred horizontally exactly once
 		BlurRowHorizontally( VerticalRow.data(), ImageWidth, ChannelsInPixel, Kernel, PaddedRow, BlurredRow.data(), Radius );
 
 		// Convert back from float to uint8_t with rounding.
@@ -126,16 +91,25 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	CheckHeaderTGA( Header );
 	const std::vector<uint8_t> ImageId = ReadImageIdTGA( InputStream, Header );
 
-	// Next field contains pixels. Each thread will seek to its own strip of them from here
+	// Next field contains pixels
 	const std::uint64_t PixelDataOffset = static_cast<std::uint64_t>( InputStream.tellg() );
 	const std::uint64_t PixelDataSize = static_cast<std::uint64_t>( Header.Width ) * Header.Height * ( Header.PixelDepth / 8 );
 
 	// The output file will have exactly the same size as the input one: same header, same amount of pixels, same tail
-	std::error_code Error;
+	std::error_code Error;  // For getting errors from std::filesystem
 	const std::uintmax_t FileSize = std::filesystem::file_size( InputFileName, Error );
 	if ( Error || FileSize < PixelDataOffset + PixelDataSize )
 	{
 		TerminateWithMessage( "File is too short to contain all pixels, specified in header" );
+	}
+
+	// Read all the pixels at once. The threads share them read-only, so each strip can take its neighbor rows from here
+	// The size check above guarantees that the file really has this many bytes before we allocate memory for them
+	std::vector<uint8_t> Pixels( static_cast<std::size_t>( PixelDataSize ) );
+	InputStream.read( reinterpret_cast<char*>( Pixels.data() ), static_cast<std::streamsize>( PixelDataSize ) );
+	if ( !InputStream )
+	{
+		TerminateWithMessage( "Couldn't read the pixels" );
 	}
 
 	// Create the output file
@@ -150,15 +124,14 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	WriteImageIdTGA( OutputStream, ImageId );
 	// Next field will contain pixels. The threads write them later, so skip it for now
 
-	// Copy everything after the pixels ( developer area, extension area, footer ) as is.
-	// Pixel data keeps its size, so the offsets stored in the footer stay valid.
-	InputStream.seekg( static_cast<std::streamoff>( PixelDataOffset + PixelDataSize ) );
+	// Stand after the pixel data
+	// InputStream already stands right after the pixels, as we have just read them
 	OutputStream.seekp( static_cast<std::streamoff>( PixelDataOffset + PixelDataSize ) );
 
 	// The check is needed because operator<< sets failbit when there is nothing to copy
 	if ( InputStream.peek() != std::ifstream::traits_type::eof() )
 	{
-		// Copy everything after Pixel data as is ( the TGA 2.0 tail )
+		// Copy everything after the pixels ( developer area, extension area, footer ) as is.
 		OutputStream << InputStream.rdbuf();
 	}
 
@@ -193,7 +166,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 		{
 			// Creating threads to calculate blur for strips from FirstRow to EndRow for each thread
 			const int EndRow = std::min( FirstRow + RowsPerStrip, ImageHeight );
-			Threads.emplace_back( [&, FirstRow, EndRow]() { BlurStripAndWriteToFile( InputFileName, OutputFileName, Header, PixelDataOffset, FirstRow, EndRow, Kernel, Radius ); } );
+			Threads.emplace_back( [&, FirstRow, EndRow]() { BlurStripAndWriteToFile( Pixels, OutputFileName, Header, PixelDataOffset, FirstRow, EndRow, Kernel, Radius ); } );
 		}
 	}
 }

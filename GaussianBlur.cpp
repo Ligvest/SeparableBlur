@@ -42,6 +42,23 @@ std::vector<float> MakeGaussianKernel( int Radius, float Sigma )
 	return Kernel;
 }
 
+void BlurRowVertically( const uint8_t* const* SrcRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow )
+{
+	// We accumulate the result in DstRow, so we need to 0 it first
+	std::fill( DstRow, DstRow + ChannelsInRow, 0.0f );
+
+	for ( std::size_t KernelIndex = 0; KernelIndex < Kernel.size(); ++KernelIndex )
+	{
+		const float Weight = Kernel[KernelIndex];
+		const uint8_t* SrcRow = SrcRows[KernelIndex];
+		// Go through all the channels in a row and add weighted channels to the resulting row
+		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
+		{
+			DstRow[I] += Weight * static_cast<float>( SrcRow[I] );
+		}
+	}
+}
+
 void BlurRowHorizontally( const float* SrcRow, int ImageWidth, int ChannelsInPixel, const std::vector<float>& Kernel, std::vector<float>& PaddedRow, float* DstRow, int Radius )
 {
 	// Pad the row with Radius copies of the edge pixel on each side ( "clamp to edge" ), so the blur loop below needs no bounds checks
@@ -77,23 +94,6 @@ void BlurRowHorizontally( const float* SrcRow, int ImageWidth, int ChannelsInPix
 			// Then we change the shift and repeat the procedure. Filling the whole DstRow at a time little by little to be able to
 			// apply SIMD, instead of blurring the whole pixel each time
 			DstRow[I] += Weight * ShiftedRow[I];
-		}
-	}
-}
-
-void BlurRowVertically( const float* const* SrcRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow )
-{
-	// We accumulate the result in DstRow, so we need to 0 it first
-	std::fill( DstRow, DstRow + ChannelsInRow, 0.0f );
-
-	for ( std::size_t KernelIndex = 0; KernelIndex < Kernel.size(); ++KernelIndex )
-	{
-		const float Weight = Kernel[KernelIndex];
-		const float* SrcRow = SrcRows[KernelIndex];
-		// Go through all the channels in a row and add weighted channels to the resulting row
-		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
-		{
-			DstRow[I] += Weight * SrcRow[I];
 		}
 	}
 }

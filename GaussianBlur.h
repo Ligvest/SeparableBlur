@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace Image
@@ -18,6 +19,6 @@ std::vector<float> MakeGaussianKernel( int Radius, float Sigma );
 void BlurRowHorizontally( const float* SrcRow, int ImageWidth, int ChannelsInPixel, const std::vector<float>& Kernel, std::vector<float>& PaddedRow, float* DstRow, int Radius );
 
 // Blurs one row along Y: weighted sum of the same channel in 2 * Radius + 1 neighbor rows.
-void BlurRowVertically( const float* const* SrcRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow );
+void BlurRowVertically( const uint8_t* const* SrcRows, std::size_t ChannelsInRow, const std::vector<float>& Kernel, float* DstRow );
 
 }  // namespace Image
