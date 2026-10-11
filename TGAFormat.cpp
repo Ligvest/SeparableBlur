@@ -52,23 +52,6 @@ void WriteHeaderTGA( std::ostream& Stream, const ImageHeaderTGA& Header )
 	Stream.write( reinterpret_cast<const char*>( &Header.ImageDescriptor ), sizeof( Header.ImageDescriptor ) );
 }
 
-std::vector<uint8_t> ReadImageIdTGA( std::istream& Stream, const ImageHeaderTGA& Header )
-{
-	// Field 6 ( Header.IdLength Bytes ) ImageId field
-	std::vector<uint8_t> ImageId( Header.IdLength );
-	Stream.read( reinterpret_cast<char*>( ImageId.data() ), Header.IdLength );
-	if ( !Stream )
-	{
-		TerminateWithMessage( "File is too short to contain the header and ImageId field" );
-	}
-	return ImageId;
-}
-
-void WriteImageIdTGA( std::ostream& Stream, const std::vector<uint8_t>& ImageId )
-{
-	Stream.write( reinterpret_cast<const char*>( ImageId.data() ), static_cast<std::streamsize>( ImageId.size() ) );
-}
-
 void CheckHeaderTGA( const ImageHeaderTGA& Header )
 {
 	// Color map is not supported

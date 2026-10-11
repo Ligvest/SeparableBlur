@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 
+#include "BinaryIO.h"
 #include "Error.h"
 #include "GaussianBlur.h"
 #include "TGAFormat.h"
@@ -67,7 +68,7 @@ static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const s
 		}
 
 		// Write a row to the result file
-		OutputStream.write( reinterpret_cast<const char*>( OutputRow.data() ), static_cast<std::streamsize>( ChannelsInRow ) );
+		WriteBytes( OutputStream, OutputRow );
 	}
 
 	OutputStream.close();
@@ -89,7 +90,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	// Read Header and ImageId field
 	const ImageHeaderTGA Header = ReadHeaderTGA( InputStream );
 	CheckHeaderTGA( Header );
-	const std::vector<uint8_t> ImageId = ReadImageIdTGA( InputStream, Header );
+	const std::vector<uint8_t> ImageId = ReadBytes( InputStream, Header.IdLength, "Couldn't read ImageId field" );
 
 	// Next field contains pixels
 	const std::uint64_t PixelDataOffset = static_cast<std::uint64_t>( InputStream.tellg() );
@@ -104,13 +105,8 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	}
 
 	// Read all the pixels at once. The threads share them read-only, so each strip can take its neighbor rows from here
-	// The size check above guarantees that the file really has this many bytes before we allocate memory for them
-	std::vector<uint8_t> Pixels( static_cast<std::size_t>( PixelDataSize ) );
-	InputStream.read( reinterpret_cast<char*>( Pixels.data() ), static_cast<std::streamsize>( PixelDataSize ) );
-	if ( !InputStream )
-	{
-		TerminateWithMessage( "Couldn't read the pixels" );
-	}
+	// The size check above guarantees that the file really has this many bytes before we allocate memory for them inside the ReadBytes function
+	const std::vector<uint8_t> Pixels = ReadBytes( InputStream, static_cast<std::size_t>( PixelDataSize ), "Couldn't read the pixels" );
 
 	// Create the output file
 	std::ofstream OutputStream( OutputFileName, std::ios::binary );
@@ -121,7 +117,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 
 	//  Write Header and ImageId field
 	WriteHeaderTGA( OutputStream, Header );
-	WriteImageIdTGA( OutputStream, ImageId );
+	WriteBytes( OutputStream, ImageId );
 	// Next field will contain pixels. The threads write them later, so skip it for now
 
 	// Stand after the pixel data

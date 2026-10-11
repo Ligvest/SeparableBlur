@@ -158,12 +158,14 @@
         </Link>
     </ItemDefinitionGroup>
     <ItemGroup>
+        <ClCompile Include="BinaryIO.cpp"/>
         <ClCompile Include="GaussianBlur.cpp"/>
         <ClCompile Include="main.cpp"/>
         <ClCompile Include="TGABlur.cpp"/>
         <ClCompile Include="TGAFormat.cpp"/>
     </ItemGroup>
     <ItemGroup>
+        <ClInclude Include="BinaryIO.h"/>
         <ClInclude Include="Error.h"/>
         <ClInclude Include="GaussianBlur.h"/>
         <ClInclude Include="TGABlur.h"/>
