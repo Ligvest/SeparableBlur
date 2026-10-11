@@ -79,6 +79,11 @@ void CheckHeaderTGA( const ImageHeaderTGA& Header )
 	}
 }
 
+bool HasAlphaTGA( const ImageHeaderTGA& Header )
+{
+	return Header.PixelDepth == 32 && ( Header.ImageDescriptor & 0x0F ) == 8;
+}
+
 void PrintHeaderTGA( const ImageHeaderTGA& Header )
 {
 	auto ImageTypeToString = []( uint8_t ImageType ) -> const char*

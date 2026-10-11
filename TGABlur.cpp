@@ -14,8 +14,41 @@
 namespace Image
 {
 
+// Multiplies the color channels of each BGRA pixel by its alpha ( "premultiplied alpha" ).
+// Without it the color of transparent pixels ( usually black ) would leak into the visible neighbors during the blur and make dark halos
+static void PremultiplyAlpha32Bit( std::vector<uint8_t>& Pixels )
+{
+	// Each element of Pixels is a channel
+	for ( std::size_t I = 0; I + 3 < Pixels.size(); I += 4 )
+	{
+		const unsigned int Alpha = Pixels[I + 3];
+		for ( std::size_t Channel = 0; Channel < 3; ++Channel )
+		{
+			// + 127 rounds to nearest instead of truncating, so fully opaque pixels ( Alpha = 255 ) stay exactly the same
+			Pixels[I + Channel] = static_cast<uint8_t>( ( Pixels[I + Channel] * Alpha + 127 ) / 255 );
+		}
+	}
+}
+
+// Reverts PremultiplyAlpha for a blurred row: divides the color channels of each BGRA pixel by its blurred alpha
+static void UnpremultiplyAlpha32Bit( std::vector<float>& Row )
+{
+	// Each element of Row is a channel
+	for ( std::size_t I = 0; I + 3 < Row.size(); I += 4 )
+	{
+		const float Alpha = Row[I + 3];
+		// A fully transparent pixel has no visible color, so 0 is as good as any other value
+		const float Scale = Alpha > 0.0f ? ( 255.0f / Alpha ) : 0.0f;
+
+		for ( std::size_t Channel = 0; Channel < 3; ++Channel )
+		{
+			Row[I + Channel] *= Scale;
+		}
+	}
+}
+
 // Blurs pixel rows [FirstRow, EndRow) and writes them into their place in the output file.
-// Pixels is the whole pixel data field, shared read-only between the threads.
+// Pixels is the whole pixel data field, shared read-only between the threads ( with premultiplied alpha if the image has alpha ).
 // Opens its own output stream, so several strips can be processed in parallel threads
 static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const std::string& OutputFileName, const ImageHeaderTGA& Header, std::uint64_t PixelDataOffset, int FirstRow, int EndRow,
                                      const std::vector<float>& Kernel, int Radius )
@@ -24,6 +57,7 @@ static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const s
 	const int ImageHeight = Header.Height;                                                  // Height in Pixels
 	const int ChannelsInPixel = Header.PixelDepth / 8;                                      // 3 ( BGR ) or 4 ( BGRA ). All channels are blurred the same way
 	const size_t ChannelsInRow = static_cast<std::size_t>( ImageWidth ) * ChannelsInPixel;  // Amount of channels in an image row
+	const bool bHasAlpha = HasAlphaTGA( Header );
 
 	// in | out opens the existing file without truncating it, so the strips written by other threads stay intact
 	std::fstream OutputStream( OutputFileName, std::ios::in | std::ios::out | std::ios::binary );
@@ -58,6 +92,12 @@ static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const s
 
 		// Blur the result of vertical blur horizontally. Each row of the strip is blurred horizontally exactly once
 		BlurRowHorizontally( VerticalRow.data(), ImageWidth, ChannelsInPixel, Kernel, PaddedRow, BlurredRow.data(), Radius );
+
+		// The pixels were blurred with premultiplied alpha, so convert the colors back to straight alpha that TGA stores
+		if ( bHasAlpha )
+		{
+			UnpremultiplyAlpha32Bit( BlurredRow );
+		}
 
 		// Convert back from float to uint8_t with rounding.
 		for ( std::size_t I = 0; I < ChannelsInRow; ++I )
@@ -97,16 +137,23 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	const std::uint64_t PixelDataSize = static_cast<std::uint64_t>( Header.Width ) * Header.Height * ( Header.PixelDepth / 8 );
 
 	// The output file will have exactly the same size as the input one: same header, same amount of pixels, same tail
-	std::error_code Error;  // For getting errors from std::filesystem
-	const std::uintmax_t FileSize = std::filesystem::file_size( InputFileName, Error );
-	if ( Error || FileSize < PixelDataOffset + PixelDataSize )
+	std::error_code FileErrorCode;  // For getting errors from std::filesystem
+	const std::uintmax_t FileSize = std::filesystem::file_size( InputFileName, FileErrorCode );
+	if ( FileErrorCode || FileSize < PixelDataOffset + PixelDataSize )
 	{
 		Error::TerminateWithMessage( "File is too short to contain all pixels, specified in header" );
 	}
 
 	// Read all the pixels at once. The threads share them read-only, so each strip can take its neighbor rows from here
 	// The size check above guarantees that the file really has this many bytes before we allocate memory for them inside the ReadBytes function
-	const std::vector<uint8_t> Pixels = IO::ReadBytes( InputStream, static_cast<std::size_t>( PixelDataSize ), "Couldn't read the pixels" );
+	// Each element of PixelData is a channel
+	std::vector<uint8_t> PixelData = IO::ReadBytes( InputStream, static_cast<std::size_t>( PixelDataSize ), "Couldn't read the pixels" );
+
+	// Blur colors weighted by alpha, so transparent pixels don't affect the color of visible ones. The strips convert them back after the blur
+	if ( HasAlphaTGA( Header ) )
+	{
+		PremultiplyAlpha32Bit( PixelData );
+	}
 
 	// Create the output file
 	std::ofstream OutputStream( OutputFileName, std::ios::binary );
@@ -139,8 +186,8 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 
 	// If there were no tail after pixel data then the file only contains Head and ImageId field,
 	// so we need to resize it manually
-	std::filesystem::resize_file( OutputFileName, FileSize, Error );
-	if ( Error )
+	std::filesystem::resize_file( OutputFileName, FileSize, FileErrorCode );
+	if ( FileErrorCode )
 	{
 		Error::TerminateWithMessage( "Couldn't resize the output file" );
 	}
@@ -162,7 +209,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 		{
 			// Creating threads to calculate blur for strips from FirstRow to EndRow for each thread
 			const int EndRow = std::min( FirstRow + RowsPerStrip, ImageHeight );
-			Threads.emplace_back( [&, FirstRow, EndRow]() { BlurStripAndWriteToFile( Pixels, OutputFileName, Header, PixelDataOffset, FirstRow, EndRow, Kernel, Radius ); } );
+			Threads.emplace_back( [&, FirstRow, EndRow]() { BlurStripAndWriteToFile( PixelData, OutputFileName, Header, PixelDataOffset, FirstRow, EndRow, Kernel, Radius ); } );
 		}
 	}
 }

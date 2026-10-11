@@ -58,6 +58,10 @@ void WriteHeaderTGA( std::ostream& Stream, const ImageHeaderTGA& Header );
 // Checks that the image is of a kind we support: uncompressed true-color, 24 or 32 bits, not empty
 void CheckHeaderTGA( const ImageHeaderTGA& Header );
 
+// True if the pixels have an alpha channel: 32 bits per pixel with 8 attribute bits ( the 4th byte of BGRA ).
+// With 0 attribute bits the 4th byte has no meaning and is blurred like any other channel
+bool HasAlphaTGA( const ImageHeaderTGA& Header );
+
 // Utility function to print an image header
 void PrintHeaderTGA( const ImageHeaderTGA& Header );
 
