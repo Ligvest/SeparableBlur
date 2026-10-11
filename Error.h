@@ -3,7 +3,7 @@
 #include <exception>
 #include <iostream>
 
-namespace Image
+namespace Error
 {
 
 // Prints the message to stderr and terminates the program
@@ -13,4 +13,4 @@ namespace Image
 	std::terminate();
 }
 
-}  // namespace Image
+}  // namespace Error

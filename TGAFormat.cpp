@@ -57,25 +57,25 @@ void CheckHeaderTGA( const ImageHeaderTGA& Header )
 	// Color map is not supported
 	if ( Header.ColorMapType != 0 )
 	{
-		TerminateWithMessage( "File shouldn't have Color map" );
+		Error::TerminateWithMessage( "File shouldn't have Color map" );
 	}
 
 	// Only uncompressed true-color images are supported
 	if ( Header.ImageType != 2 )
 	{
-		TerminateWithMessage( "Image type should be 2 ( True Color )" );
+		Error::TerminateWithMessage( "Image type should be 2 ( True Color )" );
 	}
 
 	// Only 24 and 32 bits per pixel are supported
 	if ( Header.PixelDepth != 24 && Header.PixelDepth != 32 )
 	{
-		TerminateWithMessage( "Pixel depth can only be 24 or 32 bits" );
+		Error::TerminateWithMessage( "Pixel depth can only be 24 or 32 bits" );
 	}
 
 	// Empty image
 	if ( Header.Width == 0 || Header.Height == 0 )
 	{
-		TerminateWithMessage( "Width or height is 0" );
+		Error::TerminateWithMessage( "Width or height is 0" );
 	}
 }
 

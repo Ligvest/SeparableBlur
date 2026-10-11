@@ -29,7 +29,7 @@ static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const s
 	std::fstream OutputStream( OutputFileName, std::ios::in | std::ios::out | std::ios::binary );
 	if ( !OutputStream.is_open() )
 	{
-		TerminateWithMessage( "Couldn't open the output file" );
+		Error::TerminateWithMessage( "Couldn't open the output file" );
 	}
 	OutputStream.seekp( static_cast<std::streamoff>( PixelDataOffset + FirstRow * ChannelsInRow ) );
 
@@ -68,13 +68,13 @@ static void BlurStripAndWriteToFile( const std::vector<uint8_t>& Pixels, const s
 		}
 
 		// Write a row to the result file
-		WriteBytes( OutputStream, OutputRow );
+		IO::WriteBytes( OutputStream, OutputRow );
 	}
 
 	OutputStream.close();
 	if ( !OutputStream )
 	{
-		TerminateWithMessage( "Couldn't write the output file" );
+		Error::TerminateWithMessage( "Couldn't write the output file" );
 	}
 }
 
@@ -84,13 +84,13 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	std::ifstream InputStream( InputFileName, std::ios::binary );
 	if ( !InputStream.is_open() )
 	{
-		TerminateWithMessage( "Couldn't open the input file" );
+		Error::TerminateWithMessage( "Couldn't open the input file" );
 	}
 
 	// Read Header and ImageId field
 	const ImageHeaderTGA Header = ReadHeaderTGA( InputStream );
 	CheckHeaderTGA( Header );
-	const std::vector<uint8_t> ImageId = ReadBytes( InputStream, Header.IdLength, "Couldn't read ImageId field" );
+	const std::vector<uint8_t> ImageId = IO::ReadBytes( InputStream, Header.IdLength, "Couldn't read ImageId field" );
 
 	// Next field contains pixels
 	const std::uint64_t PixelDataOffset = static_cast<std::uint64_t>( InputStream.tellg() );
@@ -101,23 +101,23 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	const std::uintmax_t FileSize = std::filesystem::file_size( InputFileName, Error );
 	if ( Error || FileSize < PixelDataOffset + PixelDataSize )
 	{
-		TerminateWithMessage( "File is too short to contain all pixels, specified in header" );
+		Error::TerminateWithMessage( "File is too short to contain all pixels, specified in header" );
 	}
 
 	// Read all the pixels at once. The threads share them read-only, so each strip can take its neighbor rows from here
 	// The size check above guarantees that the file really has this many bytes before we allocate memory for them inside the ReadBytes function
-	const std::vector<uint8_t> Pixels = ReadBytes( InputStream, static_cast<std::size_t>( PixelDataSize ), "Couldn't read the pixels" );
+	const std::vector<uint8_t> Pixels = IO::ReadBytes( InputStream, static_cast<std::size_t>( PixelDataSize ), "Couldn't read the pixels" );
 
 	// Create the output file
 	std::ofstream OutputStream( OutputFileName, std::ios::binary );
 	if ( !OutputStream.is_open() )
 	{
-		TerminateWithMessage( "Couldn't create the output file" );
+		Error::TerminateWithMessage( "Couldn't create the output file" );
 	}
 
 	//  Write Header and ImageId field
 	WriteHeaderTGA( OutputStream, Header );
-	WriteBytes( OutputStream, ImageId );
+	IO::WriteBytes( OutputStream, ImageId );
 	// Next field will contain pixels. The threads write them later, so skip it for now
 
 	// Stand after the pixel data
@@ -134,7 +134,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	OutputStream.close();
 	if ( !OutputStream )
 	{
-		TerminateWithMessage( "Couldn't write the output file" );
+		Error::TerminateWithMessage( "Couldn't write the output file" );
 	}
 
 	// If there were no tail after pixel data then the file only contains Head and ImageId field,
@@ -142,7 +142,7 @@ void BlurTGAFile( const std::string& InputFileName, const std::string& OutputFil
 	std::filesystem::resize_file( OutputFileName, FileSize, Error );
 	if ( Error )
 	{
-		TerminateWithMessage( "Couldn't resize the output file" );
+		Error::TerminateWithMessage( "Couldn't resize the output file" );
 	}
 
 	const int Radius = GetGaussianKernelRadiusFromSigma( Sigma );
