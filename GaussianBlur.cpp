@@ -8,6 +8,7 @@ namespace Image
 
 int GetGaussianKernelRadiusFromSigma( float Sigma )
 {
+	// Do std::ceil to round up. Because we want the radius to always contain 3 sigmas.
 	return static_cast<int>( std::ceil( 3.0f * Sigma ) );
 }
 

@@ -24,7 +24,8 @@ static void PremultiplyAlpha32Bit( std::vector<uint8_t>& Pixels )
 		const unsigned int Alpha = Pixels[I + 3];
 		for ( std::size_t Channel = 0; Channel < 3; ++Channel )
 		{
-			// + 127 rounds to nearest instead of truncating, so fully opaque pixels ( Alpha = 255 ) stay exactly the same
+			// + 127 rounds to nearest instead of truncating, so that all the values above 0.5 of max value ( 255 ) would become 1 and under become 0 instead of
+			// anything under 1 become 0
 			Pixels[I + Channel] = static_cast<uint8_t>( ( Pixels[I + Channel] * Alpha + 127 ) / 255 );
 		}
 	}
